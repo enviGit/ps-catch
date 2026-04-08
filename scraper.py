@@ -1,6 +1,7 @@
 import os
 import random
 import time
+from datetime import datetime, timedelta, timezone
 
 import requests
 from supabase import Client, create_client
@@ -19,8 +20,9 @@ REGIONS = {"pl-PL": "PLN", "en-US": "USD", "en-GB": "GBP", "de-DE": "EUR"}
 
 def scrape_multi_region_deals():
     base_url = "https://web.np.playstation.com/api/graphql/v1/op"
-
     master_games_dict = {}
+
+    current_time_iso = datetime.now(timezone.utc).isoformat()
 
     for locale, currency in REGIONS.items():
         print(f"\n--- Starting scan for region: {locale} ({currency}) ---")
@@ -89,10 +91,10 @@ def scrape_multi_region_deals():
                             "platforms": platforms,
                             "cover_url": cover_url,
                             "prices": {},
+                            "last_seen": current_time_iso,
                         }
 
                     country_code = locale.split("-")[1]
-
                     master_games_dict[name]["prices"][country_code] = {
                         "base": base_price,
                         "discount": discount_price,
@@ -104,17 +106,14 @@ def scrape_multi_region_deals():
                     break
 
                 offset += size
-
                 time.sleep(random.uniform(1.5, 3.5))
 
             except KeyError as e:
                 print(f"Data parsing error: missing key {e}")
                 break
 
-    print("\n--- All regions scanned! ---")
-
     games_to_insert = list(master_games_dict.values())
-    print(f"Prepared {len(games_to_insert)} unique games for database upload.")
+    print(f"\nPrepared {len(games_to_insert)} unique games for database upload.")
 
     batch_size = 500
     for i in range(0, len(games_to_insert), batch_size):
@@ -125,7 +124,28 @@ def scrape_multi_region_deals():
         except Exception as e:
             print(f"Error sending batch {i}: {e}")
 
-    print("\nDone! Multi-region sale data is now in the cloud.")
+    print("\nStarting database cleanup (removing expired deals)...")
+
+    try:
+        yesterday_iso = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+        cleanup_response = (
+            supabase.table("deals")
+            .delete()
+            .lt("last_seen", yesterday_iso)
+            .eq("is_wishlisted", False)
+            .execute()
+        )
+
+        deleted_count = len(cleanup_response.data) if cleanup_response.data else 0
+        print(
+            f"Cleanup complete. Removed {deleted_count} expired deals from the database."
+        )
+
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+
+    print("\nAll done! System is up to date.")
 
 
 scrape_multi_region_deals()
