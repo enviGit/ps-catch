@@ -65,6 +65,10 @@ def scrape_multi_region_deals():
                     break
 
                 for game in products:
+                    game_id = game.get("id")
+                    if not game_id:
+                        continue
+
                     name = game.get("name", "Unknown title")
                     platforms = ", ".join(game.get("platforms", []))
 
@@ -85,17 +89,23 @@ def scrape_multi_region_deals():
                         elif role == "PORTRAIT_BANNER" and cover_url == "":
                             cover_url = media.get("url", "")
 
-                    if name not in master_games_dict:
-                        master_games_dict[name] = {
+                    if game_id not in master_games_dict:
+                        master_games_dict[game_id] = {
+                            "game_id": game_id,
                             "title": name,
                             "platforms": platforms,
                             "cover_url": cover_url,
                             "prices": {},
                             "last_seen": current_time_iso,
                         }
+                    else:
+                        if locale == "en-US":
+                            master_games_dict[game_id]["title"] = name
+                            if cover_url:
+                                master_games_dict[game_id]["cover_url"] = cover_url
 
                     country_code = locale.split("-")[1]
-                    master_games_dict[name]["prices"][country_code] = {
+                    master_games_dict[game_id]["prices"][country_code] = {
                         "base": base_price,
                         "discount": discount_price,
                         "currency": currency,
@@ -119,7 +129,7 @@ def scrape_multi_region_deals():
     for i in range(0, len(games_to_insert), batch_size):
         batch = games_to_insert[i : i + batch_size]
         try:
-            supabase.table("deals").upsert(batch, on_conflict="title").execute()
+            supabase.table("deals").upsert(batch, on_conflict="game_id").execute()
             print(f"Sent batch: from {i} to {i + len(batch)}")
         except Exception as e:
             print(f"Error sending batch {i}: {e}")
@@ -148,4 +158,5 @@ def scrape_multi_region_deals():
     print("\nAll done! System is up to date.")
 
 
-scrape_multi_region_deals()
+if __name__ == "__main__":
+    scrape_multi_region_deals()
