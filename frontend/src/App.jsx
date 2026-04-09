@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
-import { Search, Heart, Filter, Globe } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, Heart, Filter, Globe, LogOut } from "lucide-react";
 import { supabase } from "./supabase";
+import AuthModal from "./AuthModal";
 
 const REGIONS = {
   US: {
@@ -33,8 +34,9 @@ const calculateDiscount = (basePrice, currentPrice) => {
 function App() {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
-
   const [searchQuery, setSearchQuery] = useState("");
+  const [user, setUser] = useState(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [wishlist, setWishlist] = useState(new Set());
 
   const [activeRegion, setActiveRegion] = useState(() => {
@@ -42,24 +44,37 @@ function App() {
     return savedRegion && REGIONS[savedRegion] ? savedRegion : "US";
   });
 
-  useEffect(() => {
-    localStorage.setItem("pscatch_region", activeRegion);
-  }, [activeRegion]);
-
-  const [maxPrice, setMaxPrice] = useState(REGIONS["US"].maxSlider);
+  const [maxPrice, setMaxPrice] = useState(REGIONS[activeRegion].maxSlider);
   const [minDiscount, setMinDiscount] = useState(0);
   const [platform, setPlatform] = useState("All");
 
   useEffect(() => {
+    localStorage.setItem("pscatch_region", activeRegion);
     setMaxPrice(REGIONS[activeRegion].maxSlider);
   }, [activeRegion]);
 
   useEffect(() => {
     fetchDeals();
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   async function fetchDeals() {
-    const { data, error } = await supabase.from("deals").select("*").limit(100);
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("deals")
+      .select("*")
+      .order("title", { ascending: true });
 
     if (error) {
       console.error("Fetch error:", error);
@@ -69,6 +84,14 @@ function App() {
     setLoading(false);
   }
 
+  const getDisplayTitle = (game) => {
+    return game.title;
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
   const toggleWishlist = (gameId) => {
     setWishlist((prev) => {
       const newWish = new Set(prev);
@@ -77,48 +100,13 @@ function App() {
     });
   };
 
-  const handleMaxPriceChange = (e) => {
-    const val = e.target.value;
-    if (val === "") {
-      setMaxPrice("");
-      return;
-    }
-    let num = parseInt(val, 10);
-    if (isNaN(num)) return;
-    if (num < 0) num = 0;
-
-    const absoluteMax = REGIONS[activeRegion].maxSlider * 2;
-    if (num > absoluteMax) num = absoluteMax;
-    setMaxPrice(num);
-  };
-
-  const handleMinDiscountChange = (e) => {
-    const val = e.target.value;
-    if (val === "") {
-      setMinDiscount("");
-      return;
-    }
-    let num = parseInt(val, 10);
-    if (isNaN(num)) return;
-    if (num < 0) num = 0;
-    if (num > 100) num = 100;
-    setMinDiscount(num);
-  };
-
-  const handlePriceBlur = () => {
-    if (maxPrice === "") setMaxPrice(0);
-  };
-  const handleDiscountBlur = () => {
-    if (minDiscount === "") setMinDiscount(0);
-  };
-
+  const currentRegionConfig = REGIONS[activeRegion];
   const safeMaxPrice = maxPrice === "" ? 0 : maxPrice;
   const safeMinDiscount = minDiscount === "" ? 0 : minDiscount;
-  const currentRegionConfig = REGIONS[activeRegion];
 
   const filteredGames = games.filter((game) => {
-    if (!game.title.toLowerCase().includes(searchQuery.toLowerCase()))
-      return false;
+    const displayTitle = getDisplayTitle(game).toLowerCase();
+    if (!displayTitle.includes(searchQuery.toLowerCase())) return false;
     if (platform !== "All" && !game.platforms?.includes(platform)) return false;
 
     const priceData = game.prices?.[activeRegion];
@@ -136,7 +124,6 @@ function App() {
 
   const priceFillPercentage =
     (safeMaxPrice / currentRegionConfig.maxSlider) * 100;
-  const discountFillPercentage = safeMinDiscount;
 
   const sliderThumbClasses = `
     appearance-none h-2 rounded-full outline-none cursor-pointer
@@ -152,7 +139,7 @@ function App() {
     <div className="min-h-screen bg-slate-900 p-4 md:p-8 text-slate-200 font-sans">
       <header className="flex flex-col md:flex-row items-center justify-between bg-slate-800 p-4 rounded-2xl shadow-lg border border-slate-700 sticky top-4 z-50 gap-4">
         <div className="flex items-center gap-6">
-          <div className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-600 tracking-wider cursor-pointer hover:scale-105 transition-transform">
+          <div className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-600 tracking-wider">
             PSCatch
           </div>
           {wishlist.size > 0 && (
@@ -163,40 +150,53 @@ function App() {
           )}
         </div>
 
-        <div className="flex items-center bg-slate-900 rounded-full px-4 py-2 w-full md:w-1/2 max-w-lg border-2 border-slate-700 focus-within:border-blue-500 transition-colors duration-300 shadow-inner">
+        <div className="flex items-center bg-slate-900 rounded-full px-4 py-2 w-full md:w-1/2 max-w-lg border-2 border-slate-700 focus-within:border-blue-500 transition-colors shadow-inner">
           <Search className="text-slate-400 w-5 h-5 mr-2" />
           <input
             type="text"
             placeholder="Search titles..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="bg-transparent border-none outline-none w-full text-slate-200 placeholder-slate-500"
+            className="bg-transparent border-none outline-none w-full text-slate-200"
           />
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center bg-slate-900 rounded-lg px-3 py-2 border border-slate-700 hover:border-slate-500 transition-colors cursor-pointer">
+          <div className="flex items-center bg-slate-900 rounded-lg px-3 py-2 border border-slate-700">
             <Globe className="w-4 h-4 text-slate-400 mr-2" />
             <select
               value={activeRegion}
               onChange={(e) => setActiveRegion(e.target.value)}
-              className="bg-transparent text-sm font-semibold text-slate-200 outline-none cursor-pointer appearance-none pr-4"
+              className="bg-transparent text-sm font-semibold text-slate-200 outline-none appearance-none pr-4 cursor-pointer"
             >
               {Object.entries(REGIONS).map(([key, config]) => (
-                <option
-                  key={key}
-                  value={key}
-                  className="bg-slate-800 text-slate-200"
-                >
+                <option key={key} value={key} className="bg-slate-800">
                   {config.label}
                 </option>
               ))}
             </select>
           </div>
 
-          <button className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-semibold transition-all shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 active:scale-95 whitespace-nowrap">
-            Sign In
-          </button>
+          {user ? (
+            <div className="flex items-center gap-4">
+              <span className="hidden lg:inline text-slate-400 text-sm">
+                {user.email}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 bg-red-600/20 text-red-400 px-4 py-2 rounded-full hover:bg-red-600/30 transition-colors font-bold"
+              >
+                <LogOut className="w-4 h-4" /> <span>Logout</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold shadow-lg active:scale-95 transition-all"
+            >
+              Sign In
+            </button>
+          )}
         </div>
       </header>
 
@@ -210,7 +210,7 @@ function App() {
               <button
                 key={plat}
                 onClick={() => setPlatform(plat)}
-                className={`px-5 py-2 rounded-lg font-medium transition-all ${platform === plat ? "bg-blue-600 text-white shadow-md shadow-blue-500/20 scale-105" : "bg-slate-700/50 text-slate-300 hover:bg-slate-600 border border-slate-600"}`}
+                className={`px-5 py-2 rounded-lg font-medium transition-all ${platform === plat ? "bg-blue-600 text-white shadow-md" : "bg-slate-700/50 text-slate-300 hover:bg-slate-600 border border-slate-600"}`}
               >
                 {plat}
               </button>
@@ -223,36 +223,20 @@ function App() {
             <label className="text-sm text-slate-400 font-semibold">
               Max Price
             </label>
-            <div className="flex items-center bg-slate-900 rounded-lg px-3 py-1 border border-slate-600 shadow-inner focus-within:border-blue-500 transition-colors">
-              <input
-                type="number"
-                min="0"
-                max={currentRegionConfig.maxSlider * 2}
-                step={currentRegionConfig.step}
-                value={maxPrice}
-                onChange={handleMaxPriceChange}
-                onBlur={handlePriceBlur}
-                className="bg-transparent text-blue-400 font-bold w-12 text-right outline-none"
-              />
-              <span className="text-slate-500 text-sm ml-1 font-medium">
-                {currentRegionConfig.currency}
-              </span>
-            </div>
+            <span className="text-blue-400 font-bold">
+              {safeMaxPrice} {currentRegionConfig.currency}
+            </span>
           </div>
           <input
             type="range"
             min="0"
             max={currentRegionConfig.maxSlider}
             step={currentRegionConfig.step}
-            value={
-              safeMaxPrice > currentRegionConfig.maxSlider
-                ? currentRegionConfig.maxSlider
-                : safeMaxPrice
-            }
+            value={safeMaxPrice}
             onChange={(e) => setMaxPrice(Number(e.target.value))}
             className={sliderThumbClasses}
             style={{
-              background: `linear-gradient(to right, #3b82f6 ${priceFillPercentage > 100 ? 100 : priceFillPercentage}%, #334155 ${priceFillPercentage > 100 ? 100 : priceFillPercentage}%)`,
+              background: `linear-gradient(to right, #3b82f6 ${priceFillPercentage}%, #334155 ${priceFillPercentage}%)`,
             }}
           />
         </div>
@@ -262,20 +246,7 @@ function App() {
             <label className="text-sm text-slate-400 font-semibold">
               Min Discount
             </label>
-            <div className="flex items-center bg-slate-900 rounded-lg px-3 py-1 border border-slate-600 shadow-inner focus-within:border-rose-500 transition-colors">
-              <span className="text-rose-400 font-bold mr-1">-</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="5"
-                value={minDiscount}
-                onChange={handleMinDiscountChange}
-                onBlur={handleDiscountBlur}
-                className="bg-transparent text-rose-400 font-bold w-10 text-right outline-none"
-              />
-              <span className="text-slate-500 text-sm ml-1 font-medium">%</span>
-            </div>
+            <span className="text-rose-400 font-bold">{safeMinDiscount}%</span>
           </div>
           <input
             type="range"
@@ -286,7 +257,7 @@ function App() {
             onChange={(e) => setMinDiscount(Number(e.target.value))}
             className={sliderThumbClasses}
             style={{
-              background: `linear-gradient(to right, #f43f5e ${discountFillPercentage}%, #334155 ${discountFillPercentage}%)`,
+              background: `linear-gradient(to right, #f43f5e ${safeMinDiscount}%, #334155 ${safeMinDiscount}%)`,
             }}
           />
         </div>
@@ -298,106 +269,71 @@ function App() {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           </div>
         ) : (
-          <>
-            <div className="mb-4 text-slate-400 text-sm flex justify-between items-end px-2">
-              <div>
-                Found{" "}
-                <span className="text-white font-bold">
-                  {filteredGames.length}
-                </span>{" "}
-                games
-              </div>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {filteredGames.map((game) => {
+              const priceData = game.prices?.[activeRegion];
+              const currentPriceNum = parsePrice(priceData?.discount);
+              const basePriceNum = parsePrice(priceData?.base);
+              const discountPercent = calculateDiscount(
+                basePriceNum,
+                currentPriceNum,
+              );
+              const isLiked = wishlist.has(game.game_id);
 
-            {filteredGames.length === 0 && (
-              <div className="text-center text-slate-400 mt-10 p-12 bg-slate-800/40 rounded-2xl border border-dashed border-slate-700">
-                No deals found for {currentRegionConfig.label} matching your
-                criteria.
-              </div>
-            )}
+              return (
+                <div
+                  key={game.game_id}
+                  className="bg-slate-800 rounded-xl overflow-hidden shadow-lg hover:-translate-y-1 transition-all border border-slate-700 group flex flex-col"
+                >
+                  <div className="relative aspect-[3/4] overflow-hidden bg-slate-700">
+                    <img
+                      src={game.cover_url}
+                      alt={game.title}
+                      className="object-cover w-full h-full group-hover:scale-105 transition duration-700"
+                    />
+                    {discountPercent > 0 && (
+                      <div className="absolute top-3 left-3 bg-rose-600 text-white text-xs font-black px-2.5 py-1 rounded shadow-lg border border-rose-500">
+                        -{discountPercent}%
+                      </div>
+                    )}
+                    <button
+                      onClick={() => toggleWishlist(game.game_id)}
+                      className="absolute top-3 right-3 p-2 bg-slate-900/60 backdrop-blur-md rounded-full border border-slate-600/50 hover:scale-110 active:scale-95 transition-all"
+                    >
+                      <Heart
+                        className={`w-5 h-5 transition-colors ${isLiked ? "fill-rose-500 text-rose-500" : "text-slate-300"}`}
+                      />
+                    </button>
+                  </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-              {filteredGames.map((game) => {
-                const priceData = game.prices?.[activeRegion];
-                const discountPriceText = priceData?.discount;
-                const basePriceText = priceData?.base;
-
-                const currentPriceNum = parsePrice(discountPriceText);
-                const basePriceNum = parsePrice(basePriceText);
-                const discountPercent = calculateDiscount(
-                  basePriceNum,
-                  currentPriceNum,
-                );
-
-                const isLiked = wishlist.has(game.id);
-
-                return (
-                  <div
-                    key={game.id}
-                    className="bg-slate-800 rounded-xl overflow-hidden shadow-lg hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 border border-slate-700 group flex flex-col relative"
-                  >
-                    <div className="relative aspect-[3/4] overflow-hidden bg-slate-700">
-                      {game.cover_url ? (
-                        <img
-                          src={game.cover_url}
-                          alt={game.title}
-                          className="object-cover w-full h-full group-hover:scale-105 transition duration-700"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center w-full h-full text-slate-500 bg-gradient-to-br from-slate-700 to-slate-800">
-                          <span className="font-bold text-5xl opacity-10">
-                            {game.title.charAt(0)}
-                          </span>
-                        </div>
-                      )}
-
-                      <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-slate-900 to-transparent opacity-60"></div>
-
-                      {discountPercent > 0 && (
-                        <div className="absolute top-3 left-3 bg-rose-600 text-white text-xs font-black px-2.5 py-1 rounded shadow-lg border border-rose-500">
-                          -{discountPercent}%
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => toggleWishlist(game.id)}
-                        className="absolute top-3 right-3 p-2 bg-slate-900/60 hover:bg-slate-900/90 backdrop-blur-md rounded-full transition-all hover:scale-110 active:scale-95 z-10 border border-slate-600/50"
-                      >
-                        <Heart
-                          className={`w-5 h-5 transition-colors duration-300 ${isLiked ? "fill-rose-500 text-rose-500" : "text-slate-300 hover:text-white"}`}
-                        />
-                      </button>
-                    </div>
-
-                    <div className="p-4 flex flex-col flex-grow z-10 bg-slate-800">
-                      <h2 className="font-bold text-[15px] leading-tight mb-3 line-clamp-2 text-slate-100 group-hover:text-blue-400 transition-colors">
-                        {game.title}
-                      </h2>
-
-                      <div className="mt-auto pt-3 flex justify-between items-end border-t border-slate-700/50">
-                        <span className="text-[10px] font-bold tracking-wider text-slate-400 bg-slate-900/80 px-2 py-1 rounded border border-slate-700">
-                          {game.platforms || "PS4/PS5"}
-                        </span>
-
-                        <div className="text-right">
-                          {basePriceNum > currentPriceNum && (
-                            <div className="text-[11px] text-slate-500 line-through mb-0.5 font-medium">
-                              {basePriceText}
-                            </div>
-                          )}
-                          <div className="text-xl font-black text-amber-400 drop-shadow-sm">
-                            {discountPriceText}
+                  <div className="p-4 flex flex-col flex-grow bg-slate-800">
+                    <h2 className="font-bold text-[15px] leading-tight mb-3 line-clamp-2 h-10 group-hover:text-blue-400 transition-colors">
+                      {getDisplayTitle(game)}
+                    </h2>
+                    <div className="mt-auto pt-3 flex justify-between items-end border-t border-slate-700/50">
+                      <span className="text-[10px] font-bold text-slate-400 bg-slate-900/80 px-2 py-1 rounded border border-slate-700 uppercase">
+                        {game.platforms}
+                      </span>
+                      <div className="text-right">
+                        {basePriceNum > currentPriceNum && (
+                          <div className="text-[11px] text-slate-500 line-through font-medium">
+                            {priceData.base}
                           </div>
+                        )}
+                        <div className="text-xl font-black text-amber-400 drop-shadow-sm">
+                          {priceData.discount}
                         </div>
                       </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </>
+                </div>
+              );
+            })}
+          </div>
         )}
       </main>
+
+      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </div>
   );
 }

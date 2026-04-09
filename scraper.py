@@ -10,23 +10,21 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("Error: Missing access keys. Script stopped.")
+    print("Error: Missing access keys.")
     exit()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-REGIONS = {"pl-PL": "PLN", "en-US": "USD", "en-GB": "GBP", "de-DE": "EUR"}
+REGIONS = {"pl-PL": "PLN", "de-DE": "EUR", "en-GB": "GBP", "en-US": "USD"}
 
 
 def scrape_multi_region_deals():
     base_url = "https://web.np.playstation.com/api/graphql/v1/op"
     master_games_dict = {}
-
     current_time_iso = datetime.now(timezone.utc).isoformat()
 
     for locale, currency in REGIONS.items():
-        print(f"\n--- Starting scan for region: {locale} ({currency}) ---")
-
+        print(f"\n--- Scanning region: {locale} ---")
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json",
@@ -41,121 +39,80 @@ def scrape_multi_region_deals():
         size = 100
 
         while True:
-            print(f"[{locale}] Scanning games {offset} - {offset + size}...")
-
             params = {
                 "operationName": "categoryGridRetrieve",
-                "variables": f'{{"id":"3f772501-f6f8-49b7-abac-874a88ca4897","pageArgs":{{"size":{size},"offset":{offset}}},"sortBy":null,"filterBy":[],"facetOptions":[]}}',
+                "variables": f'{{"id":"3f772501-f6f8-49b7-abac-874a88ca4897","pageArgs":{{"size":{size},"offset":{offset}}}}}',
                 "extensions": '{"persistedQuery":{"version":1,"sha256Hash":"257713466fc3264850aa473409a29088e3a4115e6e69e9fb3e061c8dd5b9f5c6"}}',
             }
 
-            response = requests.get(base_url, headers=headers, params=params)
-
-            if response.status_code != 200:
-                print(f"[{locale}] Download error! Status {response.status_code}")
-                break
-
-            data = response.json()
-
             try:
-                page_info = data["data"]["categoryGridRetrieve"]["pageInfo"]
-                products = data["data"]["categoryGridRetrieve"]["products"]
+                response = requests.get(base_url, headers=headers, params=params)
+                data = response.json()
 
+                if "data" not in data:
+                    print(f"API Error for {locale}: {data}")
+                    break
+
+                products = data["data"]["categoryGridRetrieve"]["products"]
                 if not products:
                     break
 
                 for game in products:
-                    game_id = game.get("id")
-                    if not game_id:
-                        continue
+                    concept_id = game.get("conceptId") or game.get("id")
+                    name = game.get("name", "Unknown")
+                    country_code = locale.split("-")[1].upper()
 
-                    name = game.get("name", "Unknown title")
-                    platforms = ", ".join(game.get("platforms", []))
-
-                    price_info = game.get("price", {})
-                    base_price = price_info.get("basePrice") if price_info else None
-                    discount_price = (
-                        price_info.get("discountedPrice", base_price)
-                        if price_info
-                        else None
-                    )
-
-                    cover_url = ""
-                    for media in game.get("media", []):
-                        role = media.get("role")
-                        if role == "MASTER":
-                            cover_url = media.get("url", "")
-                            break
-                        elif role == "PORTRAIT_BANNER" and cover_url == "":
-                            cover_url = media.get("url", "")
-
-                    if game_id not in master_games_dict:
-                        master_games_dict[game_id] = {
-                            "game_id": game_id,
+                    if concept_id not in master_games_dict:
+                        master_games_dict[concept_id] = {
+                            "game_id": concept_id,
                             "title": name,
-                            "platforms": platforms,
-                            "cover_url": cover_url,
+                            "platforms": ", ".join(game.get("platforms", [])),
+                            "cover_url": next(
+                                (
+                                    m["url"]
+                                    for m in game.get("media", [])
+                                    if m["role"] in ["MASTER", "PORTRAIT_BANNER"]
+                                ),
+                                "",
+                            ),
                             "prices": {},
                             "last_seen": current_time_iso,
                         }
-                    else:
-                        if locale == "en-US":
-                            master_games_dict[game_id]["title"] = name
-                            if cover_url:
-                                master_games_dict[game_id]["cover_url"] = cover_url
 
-                    country_code = locale.split("-")[1]
-                    master_games_dict[game_id]["prices"][country_code] = {
-                        "base": base_price,
-                        "discount": discount_price,
+                    if country_code in ["US", "GB"]:
+                        master_games_dict[concept_id]["title"] = name
+
+                    price_info = game.get("price", {})
+                    master_games_dict[concept_id]["prices"][country_code] = {
+                        "base": price_info.get("basePrice"),
+                        "discount": price_info.get("discountedPrice"),
                         "currency": currency,
                     }
 
-                if page_info.get("isLast", False):
-                    print(f"[{locale}] Reached the end of the list.")
+                if data["data"]["categoryGridRetrieve"]["pageInfo"].get("isLast"):
                     break
 
                 offset += size
-                time.sleep(random.uniform(1.5, 3.5))
+                time.sleep(random.uniform(1, 2))
 
-            except KeyError as e:
-                print(f"Data parsing error: missing key {e}")
+            except Exception as e:
+                print(f"Download error at offset {offset}: {e}")
                 break
 
-    games_to_insert = list(master_games_dict.values())
-    print(f"\nPrepared {len(games_to_insert)} unique games for database upload.")
+    games_list = list(master_games_dict.values())
+    print(f"Prepared {len(games_list)} unique games.")
 
-    batch_size = 500
-    for i in range(0, len(games_to_insert), batch_size):
-        batch = games_to_insert[i : i + batch_size]
+    for i in range(0, len(games_list), 500):
+        batch = games_list[i : i + 500]
         try:
             supabase.table("deals").upsert(batch, on_conflict="game_id").execute()
-            print(f"Sent batch: from {i} to {i + len(batch)}")
+            print(f"Batch {i} sent.")
         except Exception as e:
-            print(f"Error sending batch {i}: {e}")
+            print(f"Batch write error: {e}")
 
-    print("\nStarting database cleanup (removing expired deals)...")
-
-    try:
-        yesterday_iso = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-
-        cleanup_response = (
-            supabase.table("deals")
-            .delete()
-            .lt("last_seen", yesterday_iso)
-            .eq("is_wishlisted", False)
-            .execute()
-        )
-
-        deleted_count = len(cleanup_response.data) if cleanup_response.data else 0
-        print(
-            f"Cleanup complete. Removed {deleted_count} expired deals from the database."
-        )
-
-    except Exception as e:
-        print(f"Cleanup error: {e}")
-
-    print("\nAll done! System is up to date.")
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    supabase.table("deals").delete().lt("last_seen", yesterday).execute()
+    print("Database cleanup completed.")
 
 
 if __name__ == "__main__":
