@@ -1,54 +1,69 @@
 import { Heart } from "lucide-react";
 import { parsePrice, calculateDiscount } from "../utils";
 
-export default function GameCard({ game, activeRegion, isLiked, onToggleWishlist }) {
+export default function GameCard({
+  game,
+  activeRegion,
+  isLiked,
+  onToggleWishlist,
+}) {
   const priceData = game.prices?.[activeRegion];
   const isFree = priceData?.base === "Free" || priceData?.base === "Bezpłatne";
-  const currentPriceNum = isFree ? 0 : parsePrice(priceData?.discount || priceData?.base);
+  const currentPriceNum = isFree
+    ? 0
+    : parsePrice(priceData?.discount || priceData?.base);
   const basePriceNum = isFree ? 0 : parsePrice(priceData?.base);
   const discountPercent = calculateDiscount(basePriceNum, currentPriceNum);
 
   return (
-    <div className="bg-slate-800 rounded-xl overflow-hidden shadow-lg hover:-translate-y-1 transition-all border border-slate-700 group flex flex-col">
-      <div className="relative aspect-[3/4] overflow-hidden bg-slate-700">
+    <div className="bg-[#111827] rounded-2xl overflow-hidden hover:-translate-y-2 hover:shadow-[0_10px_30px_rgba(59,130,246,0.15)] transition-all duration-300 border border-white/5 group flex flex-col">
+      <div className="relative aspect-[3/4] overflow-hidden bg-[#1f2937]">
         <img
           src={game.cover_url}
           alt={game.title}
           loading="lazy"
-          className="object-cover w-full h-full group-hover:scale-105 transition duration-700"
+          className="object-cover w-full h-full group-hover:scale-105 group-hover:opacity-90 transition duration-500"
         />
         {discountPercent > 0 && !isFree && (
-          <div className="absolute top-3 left-3 bg-rose-600 text-white text-xs font-black px-2.5 py-1 rounded shadow-lg border border-rose-500">
+          <div className="absolute top-3 left-3 bg-rose-500 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-lg">
             -{discountPercent}%
           </div>
         )}
         <button
           onClick={() => onToggleWishlist(game.game_id)}
-          className="absolute top-3 right-3 p-2 bg-slate-900/60 backdrop-blur-md rounded-full border border-slate-600/50 hover:scale-110 active:scale-95 transition-all"
+          className={`absolute top-3 right-3 p-2.5 backdrop-blur-md rounded-full transition-all duration-300 active:scale-90 ${
+            isLiked
+              ? "bg-rose-500/20 border border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.4)] hover:bg-rose-500/30"
+              : "bg-black/40 border border-white/10 hover:bg-black/60"
+          }`}
         >
           <Heart
-            className={`w-5 h-5 transition-colors ${isLiked ? "fill-rose-500 text-rose-500" : "text-slate-300"}`}
+            className={`w-4 h-4 transition-all duration-300 ${
+              isLiked ? "fill-rose-500 text-rose-500 scale-110" : "text-white"
+            }`}
           />
         </button>
       </div>
 
-      <div className="p-4 flex flex-col flex-grow bg-slate-800">
-        <h2 className="font-bold text-[14px] leading-tight mb-3 line-clamp-2 h-10 group-hover:text-blue-400 transition-colors">
+      <div className="p-4 flex flex-col flex-grow bg-gradient-to-b from-[#111827] to-[#0a0f1c]">
+        <h2 className="font-bold text-[14px] leading-snug mb-3 line-clamp-2 h-10 text-slate-200 group-hover:text-blue-400 transition-colors">
           {game.title}
         </h2>
-        <div className="mt-auto pt-3 flex justify-between items-end border-t border-slate-700/50">
-          <span className="text-[10px] font-bold text-slate-400 bg-slate-900/80 px-2 py-1 rounded border border-slate-700 uppercase max-w-[50%] truncate">
+        <div className="mt-auto pt-3 flex justify-between items-end border-t border-white/5">
+          <span className="text-[10px] font-bold text-slate-500 uppercase bg-white/5 px-2 py-1 rounded-md max-w-[50%] truncate">
             {game.platforms}
           </span>
-          <div className="text-right">
+          <div className="text-right flex flex-col items-end">
             {basePriceNum > currentPriceNum && !isFree && (
-              <div className="text-[11px] text-slate-500 line-through font-medium">
+              <span className="text-[11px] text-slate-500 line-through font-semibold mb-0.5">
                 {priceData.base}
-              </div>
+              </span>
             )}
-            <div className={`text-xl font-black drop-shadow-sm ${isFree ? 'text-emerald-400' : 'text-amber-400'}`}>
+            <span
+              className={`text-lg font-black tracking-tight ${isFree ? "text-emerald-400" : "text-white"}`}
+            >
               {priceData?.discount || priceData?.base}
-            </div>
+            </span>
           </div>
         </div>
       </div>
