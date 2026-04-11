@@ -173,8 +173,8 @@ def scrape_multi_region_deals():
 
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     try:
-        supabase.table("deals").delete().lt("last_seen", yesterday).execute()
-        print("Database cleanup completed.")
+        supabase.rpc("delete_old_deals", {"cutoff": yesterday}).execute()
+        print("Database cleanup completed. Wishlisted games protected.")
     except Exception as e:
         print(f"Cleanup error: {e}")
 
