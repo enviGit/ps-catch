@@ -1,5 +1,7 @@
 # PSCatch
 
+![psCatch](https://github.com/user-attachments/assets/4565663a-6a7f-4456-91e3-9c6280621a40)
+
 PSCatch is a custom-built tool designed to catch the best digital PlayStation game deals across multiple global markets. Instead of manually checking prices in the US, UK, Europe, or Poland, this app aggregates them in one place, allowing for lightning-fast sorting and filtering.
 
 🚀 **[Live Demo](https://envigit.github.io/ps-catch/)**
